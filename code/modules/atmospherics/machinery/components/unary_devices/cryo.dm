@@ -210,9 +210,15 @@
 	..()
 	if(occupant)
 		if(on)
-			to_chat(user, "Someone's inside [src]!")
+			if(istype(user, /mob/dead/observer))
+				to_chat(user, "[occupant] is inside [src]!")
+			else
+				to_chat(user, "Someone's inside [src]!")
 		else
-			to_chat(user, "You can barely make out a form floating in [src].")
+			if(istype(user, /mob/dead/observer))
+				to_chat(user, "You can make out [occupant] floating in [src].")
+			else
+				to_chat(user, "You can barely make out a form floating in [src].")
 	else
 		to_chat(user, "[src] seems empty.")
 
