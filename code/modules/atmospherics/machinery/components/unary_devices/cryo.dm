@@ -149,7 +149,7 @@
 /obj/machinery/atmospherics/components/unary/cryo_cell/process_atmos()
 	..()
 	var/datum/gas_mixture/air1 = AIR1
-	if(on && (!NODE1 || !AIR1 || air1.heat_capacity() == 0 || !air1.gases["o2"] || air1.gases["o2"][MOLES] < 5)) // Turn off if the machine won't work.
+	if(on && (!NODE1 || !AIR1 || !air1.gases["o2"] || air1.gases["o2"][MOLES] < 5)) // Turn off if the machine won't work.
 		on = FALSE								// Now checks for non-existant o2 source as well: has side-effect of turning off cryo instantly if it wasn't setup properly.
 		update_icon()
 	if(occupant) // Process heat differential
@@ -159,7 +159,7 @@
 			cold_protection = H.get_cold_protection(air1.temperature)
 
 		var/temperature_delta = air1.temperature - occupant.bodytemperature // The only semi-realistic thing here: share temperature between the cell and the occupant.
-		if(abs(temperature_delta) > 1)
+		if(abs(temperature_delta) > 1 && air1.heat_capacity() > 0 && air1.gases["o2"]) // only process the temperature differential if air exists
 			var/air_heat_capacity = air1.heat_capacity()
 			var/heat = ((1 - cold_protection) / 10 + conduction_coefficient) \
 						* temperature_delta * \
@@ -167,7 +167,7 @@
 			air1.temperature = max(air1.temperature - heat / air_heat_capacity, TCMB) 				// Adjust cryo temperature
 			occupant.bodytemperature = max(occupant.bodytemperature + heat / heat_capacity, TCMB) 	// Adjust occupant body temperature
 
-		if (on)
+		if (on && air1.gases["o2"] && air1.gases["o2"][MOLES] >= 5) // only consume gas if air exists
 			air1.gases["o2"][MOLES] -= 0.5 / efficiency // Magically consume gas when the Cryo is active
 
 /obj/machinery/atmospherics/components/unary/cryo_cell/power_change()
