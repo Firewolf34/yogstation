@@ -114,6 +114,9 @@
 /obj/machinery/atmospherics/components/unary/cryo_cell/process()
 	..()
 	if(!on)
+		if(occupant && occupant.bodytemperature < TCMB+70) // Sleep for a short amount of time, even if Cryo is not on - so long as they're really cold.
+			occupant.Sleeping(max( ((occupant.bodytemperature / sleep_factor) * 50)+1, 1))
+			occupant.Paralyse(max( ((occupant.bodytemperature / paralyze_factor) * 50)+1, 1))
 		return
 	if(!is_operational())
 		on = FALSE
@@ -133,15 +136,15 @@
 			return
 
 		if(occupant.bodytemperature < T0C) // Sleepytime. Why? More cryo magic.
-			occupant.Sleeping((occupant.bodytemperature / sleep_factor) * 100)
-			occupant.Paralyse((occupant.bodytemperature / paralyze_factor) * 100)
+			occupant.Sleeping(max( ((occupant.bodytemperature / sleep_factor) * 100)+1, 1))
+			occupant.Paralyse(max( ((occupant.bodytemperature / paralyze_factor) * 100)+1, 1))
 
 		if(beaker)
 			if(reagent_transfer == 0) // Magically transfer reagents. Because cryo magic.
 				beaker.reagents.trans_to(occupant, 1, 10 * efficiency) // Transfer reagents, multiplied because cryo magic.
 				beaker.reagents.reaction(occupant, VAPOR)
 				if (air1.gases["o2"]) // Make sure we have o2 gas
-					air1.gases["o2"][MOLES] -= 2 / efficiency // Lets use gas for this.
+					air1.gases["o2"][MOLES] -= 10 / efficiency // Lets use gas for this. Uses roughly 5 kPa to perform the reagent transfer.
 			if(++reagent_transfer >= 10 * efficiency) // Throttle reagent transfer (higher efficiency will transfer the same amount but consume less from the beaker).
 				reagent_transfer = 0
 	return 1
@@ -152,23 +155,24 @@
 	if(on && (!NODE1 || !AIR1 || !air1.gases["o2"] || air1.gases["o2"][MOLES] < 5)) // Turn off if the machine won't work.
 		on = FALSE								// Now checks for non-existant o2 source as well: has side-effect of turning off cryo instantly if it wasn't setup properly.
 		update_icon()
-	if(occupant) // Process heat differential
+
+	//always process heat differential, regardless of whether or not the cryogenics tube is on or not.
+	if(occupant && air1.gases["o2"] && air1.gases["o2"][MOLES] >= 5) // Process heat differential, but only if we have enough gas to do so
 		var/cold_protection = 0
 		var/mob/living/carbon/human/H = occupant
 		if(istype(H))
 			cold_protection = H.get_cold_protection(air1.temperature)
 
 		var/temperature_delta = air1.temperature - occupant.bodytemperature // The only semi-realistic thing here: share temperature between the cell and the occupant.
-		if(abs(temperature_delta) > 1 && air1.heat_capacity() > 0 && air1.gases["o2"]) // only process the temperature differential if air exists
+		if(abs(temperature_delta) > 1 && air1.heat_capacity() > 0) // only process the temperature differential if air has heat transfer capacity
 			var/air_heat_capacity = air1.heat_capacity()
 			var/heat = ((1 - cold_protection) / 10 + conduction_coefficient) \
 						* temperature_delta * \
 						(air_heat_capacity * heat_capacity / (air_heat_capacity + heat_capacity))
 			air1.temperature = max(air1.temperature - heat / air_heat_capacity, TCMB) 				// Adjust cryo temperature
 			occupant.bodytemperature = max(occupant.bodytemperature + heat / heat_capacity, TCMB) 	// Adjust occupant body temperature
-
-		if (on && air1.gases["o2"] && air1.gases["o2"][MOLES] >= 5) // only consume gas if air exists
-			air1.gases["o2"][MOLES] -= 0.5 / efficiency // Magically consume gas when the Cryo is active
+			air1.gases["o2"][MOLES] -= ((0.5 / efficiency) * (heat / -air_heat_capacity)) / PI  // Magically consume gas when the Cryo holds an occupant, proportional to the heat differential.
+			                                                                                    // This comes out to around 30 units of gas used to bring a normal body to 73.15K, the default-tech freezer temperature.
 
 /obj/machinery/atmospherics/components/unary/cryo_cell/power_change()
 	..()
@@ -199,9 +203,9 @@
 
 /obj/machinery/atmospherics/components/unary/cryo_cell/container_resist(mob/living/user)
 	user.last_special = world.time + CLICK_CD_BREAKOUT
-	to_chat(user, "<span class='notice'>You struggle inside the cryotube, kicking the release with your foot... (This will take around 30 seconds.)</span>")
+	to_chat(user, "<span class='notice'>You struggle inside the cryotube, kicking the release with your foot... (This will take around 15 seconds.)</span>")
 	audible_message("<span class='notice'>You hear a thump from [src].</span>")
-	if(do_after(user, 300))
+	if(do_after(user, 150))
 		if(occupant == user) // Check they're still here.
 			open_machine()
 
