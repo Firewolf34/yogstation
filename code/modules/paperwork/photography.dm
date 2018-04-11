@@ -31,32 +31,100 @@
 	w_class = 1
 	burn_state = FLAMMABLE
 	burntime = 5
+	var/burnt = 0		//Has the photo been burned? (papers get modified on burn, now photos do too! this value increases by one everytime it undergoes a burn tick)
 	var/icon/img		//Big photo image
 	var/scribble		//Scribble on the back.
 	var/blueprints = 0	//Does it include the blueprints?
 	var/sillynewscastervar  //Photo objects with this set to 1 will not be ejected by a newscaster. Only gets set to 1 if a silicon puts one of their images into a newscaster
 
+/obj/item/weapon/photo/update_icon()
+	if(burn_state == ON_FIRE)
+		icon = 'icons/obj/bureaucracy.dmi'
+		icon_state = "paper_onfire"
+		return
+	icon = 'icons/obj/items.dmi'
+	icon_state = "photo"
 
 /obj/item/weapon/photo/attack_self(mob/user)
 	user.examinate(src)
 
 
-/obj/item/weapon/photo/attackby(obj/item/weapon/P, mob/user, params)
+/obj/item/weapon/photo/attackby(obj/item/weapon/P, mob/living/user, params)
+	if(burn_state == ON_FIRE)
+		return
+
+	if(is_blind(user))
+		return
+
 	if(istype(P, /obj/item/weapon/pen) || istype(P, /obj/item/toy/crayon))
-		var/txt = stripped_input(user, "What would you like to write on the back?", "Photo Writing", null)
-		txt = copytext(txt, 1, 128)
-		if(loc == user && user.stat == 0)
-			scribble = txt
+		if(user.is_literate())
+			var/txt = stripped_input(user, "What would you like to write on the back?", "Photo Writing", null)
+			if (txt == null)//don't do anything if we don't get any text back
+				return
+			txt = copytext(txt, 1, 128)
+			if((in_range(user, src)) && (user.stat == 0))
+				scribble = txt
+				user.visible_message("<span class='notice'>[user] scribbles something on the back of [src].</span>", \
+								"<span class='notice'>You write on the back of [src]</span>.")
+				playsound(loc, "write", 50, 1, -1)
+				add_fingerprint(user)
+		else
+			to_chat(user, "<span class='notice'>You don't know how to read or write.</span>")
+			return
+
+	if(P.is_hot())//Photograph burn mechanics, copied from the Paper. Perhaps Photo could inherit from Paper one day?
+		if(!(in_range(user, src))) //to prevent issues as a result of telepathically lighting a photograph
+			return
+
+		if(user.disabilities & CLUMSY && prob(10))
+			user.visible_message("<span class='warning'>[user] accidentally ignites themselves!</span>", \
+								"<span class='userdanger'>You miss [src] and accidentally light yourself on fire!</span>")
+			user.unEquip(P)
+			user.adjust_fire_stacks(1)
+			user.IgniteMob()
+			return
+
+		user.unEquip(src)
+		user.visible_message("<span class='danger'>[user] lights [src] ablaze with [P]!</span>", "<span class='danger'>You light [src] on fire!</span>")
+		fire_act()
 	..()
+
+/obj/item/weapon/photo/fire_act()
+	..(0)
+	burnt += 1
+	icon = 'icons/obj/bureaucracy.dmi'
+	icon_state = "paper_onfire"
+
+/obj/item/weapon/photo/extinguish()
+	..()
+	if(burnt >= 1)//image has been burnt, so wipe it's image data, change it's name, and it's scribbles.
+		name = "charred photo"
+		if (scribble != null)//scribbles are always removed, in any case, by the fire.
+			scribble = "*********"//TODO: please use the text damager proc that paper uses after it's been burned to modify it's text like it's charred
+		if (burnt >= 2)//image has been burnt twice!
+			blueprints = 0
+			img = null
+			desc = "This photograph looks like it's been damaged in some kind of fire."
+	update_icon()
 
 
 /obj/item/weapon/photo/examine(mob/user)
 	..()
 
-	if(in_range(user, src))
-		show(user)
-	else
+	if(burn_state == ON_FIRE)
+		to_chat(user, "<span class='warning'>The photo is on fire!</span>")
+		return
+
+	if(!in_range(user, src))
 		to_chat(user, "<span class='warning'>You need to get closer to get a good look at this photo!</span>")
+		return
+
+	if(burnt == 0)
+		show(user)
+		if (scribble != null)
+			to_chat(user, "<span class='notice'>Written on the back of the photo is: <i>[scribble]</i></span>")
+	else if(burnt >= 2)
+		to_chat(user, "<span class='warning'>The photo is too charred and burnt to make out anything.</span>")
 
 
 /obj/item/weapon/photo/proc/show(mob/user)
@@ -74,6 +142,8 @@
 	set category = "Object"
 	set src in usr
 
+	if(usr.incapacitated() || !usr.is_literate() || (burn_state == ON_FIRE))
+		return
 	var/n_name = stripped_input(usr, "What would you like to label the photo?", "Photo Labelling", null, MAX_NAME_LEN)
 	//loc.loc check is for making possible renaming photos in clipboards
 	if((loc == usr || loc.loc && loc.loc == usr) && usr.stat == 0 && usr.canmove && !usr.restrained())
